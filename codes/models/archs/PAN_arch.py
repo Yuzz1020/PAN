@@ -29,7 +29,7 @@ class PAConv(nn.Module):
     def __init__(self, nf, k_size=3, max_bit=None, min_bit=None):
 
         super(PAConv, self).__init__()
-        self.k2 = Conv2d(nf, nf, 1, max_bit=max_bit, min_bit=min_bit)) # 1x1 convolution nf->nf
+        self.k2 = Conv2d(nf, nf, 1, max_bit=max_bit, min_bit=min_bit) # 1x1 convolution nf->nf
         self.sigmoid = nn.Sigmoid()
         self.k3 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
         self.k4 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
