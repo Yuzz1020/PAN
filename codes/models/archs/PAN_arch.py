@@ -121,7 +121,10 @@ class PAN(nn.Module):
         fea = self.conv_first(x)
         
         # main blocks 
-        trunk = self.trunk_conv(self.SCPA_trunk(fea, fix_bit=fix_bit), fix_bit=fix_bit)
+        trunk = fea 
+        for m in self.SCPA_trunk:
+            trunk = m(trunk, fix_bit=fix_bit)
+        trunk = self.trunk_conv(trunk, fix_bit=fix_bit)
         fea = fea + trunk
         
         # upsampling 
