@@ -39,7 +39,7 @@ class SRModel(BaseModel):
         else:
             self.rank = -1  # non dist training
         train_opt = opt['train']
-        self.opt = train_opt 
+        self.train_opt = train_opt 
 
         # define network and load pretrained models
         self.netG = networks.define_G(opt).to(self.device)
@@ -157,27 +157,27 @@ class SRModel(BaseModel):
         else:
             l_pix = self.l_pix_w * self.cri_pix(self.fake_H, self.real_H)
         
-        if self.opt['DP']:
-            if self.opt['change']: 
+        if self.train_opt['DP']:
+            if self.train_opt['change']: 
                 if curr_step > (total_iters*0.75):
-                    self.opt['loss_flops_weight'] = self.init_flops_weight * 0.25 
+                    self.train_opt['loss_flops_weight'] = self.init_flops_weight * 0.25 
                 elif curr_step > (total_iters * 0.5): 
-                    self.opt['loss_flops_weight'] = self.init_flops_weight * 0.5 
+                    self.train_opt['loss_flops_weight'] = self.init_flops_weight * 0.5 
                 else:
-                    self.opt['loss_flops_weight'] = self.init_flops_weight 
-            flops_loss, total_flops = self.get_effieiency_loss(self.opt['target_ratio'], self.opt['loss_type']) # TDOO: implement this 
+                    self.train_opt['loss_flops_weight'] = self.init_flops_weight 
+            flops_loss, total_flops = self.get_effieiency_loss(self.train_opt['target_ratio'], self.train_opt['loss_type']) # TDOO: implement this 
             flops_weight = l_pix.item() / (flops_loss.item() + 1e-8)
-            l_pix += flops_weight * flops_loss * self.opt['loss_flops_weight']
+            l_pix += flops_weight * flops_loss * self.train_opt['loss_flops_weight']
         
         l_pix.backward()
         self.optimizer_G.step()
 
-        if self.opt['DP']:
+        if self.train_opt['DP']:
             self.optimizer_P.step()
             self.optimizer_P.zero_grad() 
 
             # tb logging related 
-            if curr_step % self.opt['tb_logging_interval'] == 0:
+            if curr_step % self.train_opt['tb_logging_interval'] == 0:
                 prec_list = self.tb_info_logging(tb_logger, curr_step) # TODO: log with name of layer, includes prec, grad, bit_grad, returns prec_list 
                 
         self.optimizer_G.zero_grad()
@@ -193,13 +193,13 @@ class SRModel(BaseModel):
             self.log_dict['l_grad'] = lg.item()
             self.log_dict['l_fs'] = lfs.item()
         
-        if self.opt['DP']:
+        if self.train_opt['DP']:
             return prec_list, total_flops 
         else:
             return None, None 
 
     def get_efficiency_loss(self):
-        bp = self.opt['calc_bp_cost']
+        bp = self.train_opt['calc_bp_cost']
         assert self.loss_type in ['thres']
         if bp == True:
             curr_flops = self.total_fix_flops * 3 
