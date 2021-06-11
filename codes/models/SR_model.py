@@ -269,11 +269,11 @@ class SRModel(BaseModel):
                 tb_logger.add_scalar('{}bitgrad/iter'.format(name), bit_grad, curr_step) 
         return prec_list 
 
-    def test(self):
+    def test(self, fix_bit=None):
         self.netG.eval()
         
         with torch.no_grad():
-            self.fake_H = self.netG(self.var_L)
+            self.fake_H = self.netG(self.var_L, fix_bit=fix_bit)
         self.netG.train()
 
     def test_x8(self):

@@ -71,6 +71,7 @@ train:
   min_bit: 3 
   change: False # change flops weight 
   target_ratio: 0.5 
+  loss_flops_weight: 1
   calc_bp_cost: True  # calculate bp cost when computing efficiency metric 
   loss_type: thres # in [rela, thres] 
   tb_logging_interval: 10

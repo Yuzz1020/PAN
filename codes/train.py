@@ -35,6 +35,7 @@ def main():
     args = parser.parse_args()
     opt = option.parse(args.opt, is_train=True)
 
+
     #### distributed training settings
     if args.launcher == 'none':  # disabled distributed training
         # default is not using distributed training 
@@ -156,7 +157,7 @@ def main():
             
             #### training
             model.feed_data(train_data)
-            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters, fix_bit=None)
+            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters, fix_bit=opt['train']['fix_bit'])
             AvgFLOPs.update(iter_cost)
             tb_logger.add_scalar('flops/iter', iter_cost, current_step)
 
@@ -194,7 +195,7 @@ def main():
                         util.mkdir(img_dir)
 
                         model.feed_data(val_data)
-                        model.test()
+                        model.test(fix_bit=opt['train']['fix_bit'])
 
                         visuals = model.get_current_visuals()
                         sr_img = util.tensor2img(visuals['rlt'])  # uint8
@@ -237,7 +238,7 @@ def main():
                                                                device='cuda')
                             # tmp = torch.zeros(max_idx, dtype=torch.float32, device='cuda')
                             model.feed_data(val_data)
-                            model.test()
+                            model.test(fix_bit=opt['train']['fix_bit'])
                             visuals = model.get_current_visuals()
                             rlt_img = util.tensor2img(visuals['rlt'])  # uint8
                             gt_img = util.tensor2img(visuals['GT'])  # uint8
@@ -280,7 +281,7 @@ def main():
                                 psnr_rlt[folder] = []
 
                             model.feed_data(val_data)
-                            model.test()
+                            model.test(fix_bit=opt['train']['fix_bit'])
                             visuals = model.get_current_visuals()
                             rlt_img = util.tensor2img(visuals['rlt'])  # uint8
                             gt_img = util.tensor2img(visuals['GT'])  # uint8
