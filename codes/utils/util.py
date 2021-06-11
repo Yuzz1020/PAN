@@ -391,3 +391,21 @@ class AverageMeter(object):
         self.sum += val * cnt
         self.count += cnt
         self.avg = self.sum / self.count
+
+class RunningMean(object):
+    def __init__(self):
+        self.reset()
+
+    def reset(self, ratio=0.9):
+        self.val = 0
+        self.start = True
+        self.avg = 0
+        self.ratio = ratio
+
+    def update(self, val):
+        self.val = val
+        if self.start:
+            self.start = False
+            self.avg = self.val
+        else:
+            self.avg = self.ratio * self.avg + (1 - self.ratio) * self.val

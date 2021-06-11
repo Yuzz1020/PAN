@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd.function import InplaceFunction, Function
 
-import utils 
+import utils.util as utils
 
 QParams = namedtuple('QParams', ['range', 'zero_point', 'num_bits'])
 
