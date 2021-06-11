@@ -145,6 +145,7 @@ def main():
 
     AvgFLOPs = util.AverageMeter()
 
+
     #### training
     logger.info('Start training from epoch: {:d}, iter: {:d}'.format(start_epoch, current_step))
     for epoch in range(start_epoch, total_epochs + 1):

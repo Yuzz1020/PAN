@@ -17,7 +17,7 @@ datasets:
     
     use_shuffle: true
     n_workers: 6  # per GPU
-    batch_size: 32
+    batch_size: 128
     GT_size: 256
     use_flip: true
     use_rot: true
@@ -66,7 +66,7 @@ train:
   DP: True 
   prec_opt: sgd 
   prec_lr: 0.1
-  fix_bit: None # TODO: add this 
+  fix_bit: ~  
   max_bit: 8
   min_bit: 3 
   change: False # change flops weight 

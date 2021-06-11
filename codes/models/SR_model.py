@@ -165,7 +165,7 @@ class SRModel(BaseModel):
                     self.train_opt['loss_flops_weight'] = self.init_flops_weight * 0.5 
                 else:
                     self.train_opt['loss_flops_weight'] = self.init_flops_weight 
-            flops_loss, total_flops = self.get_effieiency_loss(self.train_opt['target_ratio'], self.train_opt['loss_type']) # TDOO: implement this 
+            flops_loss, total_flops = self.get_efficiency_loss()  
             flops_weight = l_pix.item() / (flops_loss.item() + 1e-8)
             l_pix += flops_weight * flops_loss * self.train_opt['loss_flops_weight']
         
@@ -214,6 +214,7 @@ class SRModel(BaseModel):
                     curr_flops += self.ldp_layer_cost[cnt] * layer_prec * layer_prec / 8 / 8 + 2 * self.ldp_layer_cost[cnt] * layer_prec / 8 
                 elif bp == False:
                     curr_flops += self.ldp_layer_cost[cnt] * layer_prec * layer_prec / 8 / 8 
+                cnt += 1 
         if bp == True:
             curr_flops = curr_flops / 3 
         if self.loss_type == 'thres':
@@ -264,9 +265,11 @@ class SRModel(BaseModel):
             if 'prec' in name:
                 prec = np.clip(np.round(param.item() * (self.max_bit - self.min_bit) + self.min_bit), self.min_bit, self.max_bit)
                 prec_list.append(prec) 
-                tb_logger.add_scalar('{}prec/iter'.format(name), prec, curr_step)
+                if curr_step %  self.train_opt['tb_logging_interval'] == 0:
+                    tb_logger.add_scalar('{}prec/iter'.format(name), prec, curr_step)
                 bit_grad = param.grad 
-                tb_logger.add_scalar('{}bitgrad/iter'.format(name), bit_grad, curr_step) 
+                if curr_step %  self.train_opt['tb_logging_interval'] == 0:
+                    tb_logger.add_scalar('{}bitgrad/iter'.format(name), bit_grad, curr_step) 
         return prec_list 
 
     def test(self, fix_bit=None):
