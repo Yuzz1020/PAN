@@ -3,6 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import models.archs.arch_util as arch_util
+import models.quantize as Q 
+
+Conv2d = Q.QConv2d
+Linear = Q.QLinear
 
 class PA(nn.Module):
     '''PA is pixel attention'''
@@ -22,21 +26,21 @@ class PA(nn.Module):
     
 class PAConv(nn.Module):
 
-    def __init__(self, nf, k_size=3):
+    def __init__(self, nf, k_size=3, max_bit=None, min_bit=None):
 
         super(PAConv, self).__init__()
-        self.k2 = nn.Conv2d(nf, nf, 1) # 1x1 convolution nf->nf
+        self.k2 = Conv2d(nf, nf, 1, max_bit=max_bit, min_bit=min_bit)) # 1x1 convolution nf->nf
         self.sigmoid = nn.Sigmoid()
-        self.k3 = nn.Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False) # 3x3 convolution
-        self.k4 = nn.Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False) # 3x3 convolution
+        self.k3 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
+        self.k4 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
 
-    def forward(self, x):
+    def forward(self, x, fix_bit=None):
 
-        y = self.k2(x)
+        y = self.k2(x, fix_bit=fix_bit)
         y = self.sigmoid(y)
 
-        out = torch.mul(self.k3(x), y)
-        out = self.k4(out)
+        out = torch.mul(self.k3(x, fix_bit=fix_bit), y)
+        out = self.k4(out, fix_bit=fix_bit)
 
         return out
         
@@ -46,51 +50,49 @@ class SCPA(nn.Module):
         Github: https://github.com/MCG-NKU/SCNet
     """
 
-    def __init__(self, nf, reduction=2, stride=1, dilation=1):
+    def __init__(self, nf, reduction=2, stride=1, dilation=1, max_bit=None, min_bit=None):
         super(SCPA, self).__init__()
         group_width = nf // reduction
         
-        self.conv1_a = nn.Conv2d(nf, group_width, kernel_size=1, bias=False)
-        self.conv1_b = nn.Conv2d(nf, group_width, kernel_size=1, bias=False)
+        self.conv1_a = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
+        self.conv1_b = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
         
-        self.k1 = nn.Sequential(
-                    nn.Conv2d(
+        self.k1 = Conv2d(
                         group_width, group_width, kernel_size=3, stride=stride,
                         padding=dilation, dilation=dilation,
-                        bias=False)
-                    )
+                        bias=False, max_bit=max_bit, min_bit=min_bit)
         
-        self.PAConv = PAConv(group_width)
+        self.PAConv = PAConv(group_width, max_bit=max_bit, min_bit=min_bit)
         
-        self.conv3 = nn.Conv2d(
-            group_width * reduction, nf, kernel_size=1, bias=False)
+        self.conv3 = Conv2d(
+            group_width * reduction, nf, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
         
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
-    def forward(self, x):
+    def forward(self, x, fix_bit=None):
         residual = x
 
-        out_a= self.conv1_a(x)
-        out_b = self.conv1_b(x)
+        out_a= self.conv1_a(x, fix_bit=fix_bit)
+        out_b = self.conv1_b(x, fix_bit=fix_bit)
         out_a = self.lrelu(out_a)
         out_b = self.lrelu(out_b)
 
-        out_a = self.k1(out_a)
-        out_b = self.PAConv(out_b)
+        out_a = self.k1(out_a, fix_bit=fix_bit)
+        out_b = self.PAConv(out_b, fix_bit=fix_bit)
         out_a = self.lrelu(out_a)
         out_b = self.lrelu(out_b)
 
-        out = self.conv3(torch.cat([out_a, out_b], dim=1))
+        out = self.conv3(torch.cat([out_a, out_b], dim=1), fix_bit=fix_bit)
         out += residual
 
         return out
     
 class PAN(nn.Module):
     
-    def __init__(self, in_nc, out_nc, nf, unf, nb, scale=4):
+    def __init__(self, in_nc, out_nc, nf, unf, nb, scale=4, max_bit=None, min_bit=None):
         super(PAN, self).__init__()
         # SCPA
-        SCPA_block_f = functools.partial(SCPA, nf=nf, reduction=2)
+        SCPA_block_f = functools.partial(SCPA, nf=nf, reduction=2, max_bit=max_bit, min_bit=min_bit)
         self.scale = scale
         
         ### first convolution
@@ -98,7 +100,7 @@ class PAN(nn.Module):
         
         ### main blocks
         self.SCPA_trunk = arch_util.make_layer(SCPA_block_f, nb)
-        self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.trunk_conv = Conv2d(nf, nf, 3, 1, 1, bias=True, max_bit=max_bit, min_bit=min_bit)
         
         #### upsampling
         self.upconv1 = nn.Conv2d(nf, unf, 3, 1, 1, bias=True)
@@ -113,12 +115,16 @@ class PAN(nn.Module):
         self.conv_last = nn.Conv2d(unf, out_nc, 3, 1, 1, bias=True)
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
-    def forward(self, x):
+    def forward(self, x, fix_bit=None):
         
+        # first conv
         fea = self.conv_first(x)
-        trunk = self.trunk_conv(self.SCPA_trunk(fea))
+        
+        # main blocks 
+        trunk = self.trunk_conv(self.SCPA_trunk(fea, fix_bit=fix_bit), fix_bit=fix_bit)
         fea = fea + trunk
         
+        # upsampling 
         if self.scale == 2 or self.scale == 3:
             fea = self.upconv1(F.interpolate(fea, scale_factor=self.scale, mode='nearest'))
             fea = self.lrelu(self.att1(fea))

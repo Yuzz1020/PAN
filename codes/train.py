@@ -37,6 +37,7 @@ def main():
 
     #### distributed training settings
     if args.launcher == 'none':  # disabled distributed training
+        # default is not using distributed training 
         opt['dist'] = False
         rank = -1
         print('Disabled distributed training.')
@@ -141,6 +142,8 @@ def main():
         current_step = 0
         start_epoch = 0
 
+    AvgFLOPs = util.AverageMeter()
+
     #### training
     logger.info('Start training from epoch: {:d}, iter: {:d}'.format(start_epoch, current_step))
     for epoch in range(start_epoch, total_epochs + 1):
@@ -153,8 +156,10 @@ def main():
             
             #### training
             model.feed_data(train_data)
-            model.optimize_parameters(current_step)
-            
+            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters, fix_bit=None)
+            AvgFLOPs.update(iter_cost)
+            tb_logger.add_scalar('flops/iter', iter_cost, current_step)
+
             #### update learning rate
             model.update_learning_rate(current_step, warmup_iter=opt['train']['warmup_iter'])
 
@@ -173,6 +178,8 @@ def main():
                             tb_logger.add_scalar(k, v, current_step)
                 if rank <= 0:
                     logger.info(message)
+                    logger.info('precision are {}'.format(prec_list))
+
             #### validation
             if opt['datasets'].get('val', None) and current_step % opt['train']['val_freq'] == 0:
                 if opt['model'] in ['sr', 'srgan'] and rank <= 0:  # image restoration validation

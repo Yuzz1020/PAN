@@ -7,12 +7,15 @@ import models.archs.RCAN_arch as RCAN_arch
 # Generator
 def define_G(opt):
     opt_net = opt['network_G']
+    max_bit = opt['train']['max_bit']
+    min_bit = opt['train']['min_bit']
+
     which_model = opt_net['which_model_G']
 
     # image restoration
     if which_model == 'PAN':
         netG = PAN_arch.PAN(in_nc=opt_net['in_nc'], out_nc=opt_net['out_nc'],
-                                       nf=opt_net['nf'], unf=opt_net['unf'], nb=opt_net['nb'], scale=opt_net['scale'])
+                                       nf=opt_net['nf'], unf=opt_net['unf'], nb=opt_net['nb'], scale=opt_net['scale'], max_bit=max_bit, min_bit=min_bit)
     elif which_model == 'MSRResNet_PA':
         netG = SRResNet_arch.MSRResNet_PA(in_nc=opt_net['in_nc'], out_nc=opt_net['out_nc'],
                                        nf=opt_net['nf'], nb=opt_net['nb'], upscale=opt_net['scale'])

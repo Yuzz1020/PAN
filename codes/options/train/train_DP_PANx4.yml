@@ -63,12 +63,21 @@ train:
   manual_seed: 10
   val_freq: !!float 5e3
   #### dynamic precision related 
-  DP: False 
+  DP: True 
   prec_opt: sgd 
   prec_lr: 0.1
+  fix_bit: None # TODO: add this 
+  max_bit: 8
+  min_bit: 3 
+  change: False # change flops weight 
+  target_ratio: 0.5 
+  calc_bp_cost: True  # calculate bp cost when computing efficiency metric 
+  loss_type: thres # in [rela, thres] 
+  tb_logging_interval: 10
+
+
 
 #### logger
 logger:
   print_freq: 100
   save_checkpoint_freq: !!float 5e3
-

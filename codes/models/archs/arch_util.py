@@ -46,7 +46,7 @@ def make_layer(block, n_layers):
     layers = []
     for _ in range(n_layers):
         layers.append(block())
-    return nn.Sequential(*layers)
+    return nn.ModuleList(*layers)
 
         
 class ResidualBlock_noBN(nn.Module):
