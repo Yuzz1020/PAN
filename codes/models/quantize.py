@@ -237,7 +237,7 @@ class QConv2d(nn.Conv2d):
         if self.prec_w > 1.1:
             self.prec_w = nn.Parameter(torch.tensor(1.1).cuda())
         elif self.prec_w < -0.1:
-            self.prec_w = nn.parameter(torch.tensor(-0.1).cuda())
+            self.prec_w = nn.Parameter(torch.tensor(-0.1).cuda())
         if fix_bit is None:
             
             if num_bits_weight == 0:
