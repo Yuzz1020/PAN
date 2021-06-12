@@ -168,6 +168,8 @@ class SRModel(BaseModel):
             flops_loss, total_flops = self.get_efficiency_loss()  
             flops_weight = l_pix.item() / (flops_loss.item() + 1e-8)
             l_pix += flops_weight * flops_loss * self.train_opt['loss_flops_weight']
+            import ipdb
+            ipdb.set_trace()
         
         l_pix.backward()
         self.optimizer_G.step()
@@ -179,6 +181,8 @@ class SRModel(BaseModel):
             # tb logging related 
             if curr_step % self.train_opt['tb_logging_interval'] == 0:
                 prec_list = self.tb_info_logging(tb_logger, curr_step) # TODO: log with name of layer, includes prec, grad, bit_grad, returns prec_list 
+            else:
+                prec_list = None
                 
         self.optimizer_G.zero_grad()
         
@@ -219,6 +223,7 @@ class SRModel(BaseModel):
             curr_flops = curr_flops / 3 
         if self.loss_type == 'thres':
             if curr_flops > self.target_flops:
+                print('exceed cost budget')
                 return curr_flops, curr_flops
             else:
                 return torch.tensor(0.0), curr_flops 
