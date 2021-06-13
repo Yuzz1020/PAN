@@ -260,7 +260,7 @@ class QConv2d(nn.Conv2d):
             output = F.conv2d(qinput, qweight, qbias, self.stride,
                             self.padding, self.dilation, self.groups)
             if dynamic_grad is not None:
-                if dynamic_grad in [4,5,6,7,8]:
+                if isinstance(dynamic_grad, int):
                     grad_bit = dynamic_grad 
                 else:
                     bit_range = self.max_bit - self.min_bit 

@@ -34,13 +34,13 @@ class PAConv(nn.Module):
         self.k3 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
         self.k4 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
 
-    def forward(self, x, fix_bit=None):
+    def forward(self, x, fix_bit=None, dynamic_grad=None):
 
-        y = self.k2(x, fix_bit=fix_bit)
+        y = self.k2(x, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
         y = self.sigmoid(y)
 
-        out = torch.mul(self.k3(x, fix_bit=fix_bit), y)
-        out = self.k4(out, fix_bit=fix_bit)
+        out = torch.mul(self.k3(x, fix_bit=fix_bit, dynamic_grad=dynamic_grad), y)
+        out = self.k4(out, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
 
         return out
         
@@ -69,20 +69,20 @@ class SCPA(nn.Module):
         
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
-    def forward(self, x, fix_bit=None):
+    def forward(self, x, fix_bit=None, dynamic_grad=None):
         residual = x
 
-        out_a= self.conv1_a(x, fix_bit=fix_bit)
-        out_b = self.conv1_b(x, fix_bit=fix_bit)
+        out_a= self.conv1_a(x, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        out_b = self.conv1_b(x, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
         out_a = self.lrelu(out_a)
         out_b = self.lrelu(out_b)
 
-        out_a = self.k1(out_a, fix_bit=fix_bit)
-        out_b = self.PAConv(out_b, fix_bit=fix_bit)
+        out_a = self.k1(out_a, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        out_b = self.PAConv(out_b, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
         out_a = self.lrelu(out_a)
         out_b = self.lrelu(out_b)
 
-        out = self.conv3(torch.cat([out_a, out_b], dim=1), fix_bit=fix_bit)
+        out = self.conv3(torch.cat([out_a, out_b], dim=1), fix_bit=fix_bit, dynamic_grad=dynamic_grad)
         out += residual
 
         return out
@@ -115,16 +115,16 @@ class PAN(nn.Module):
         self.conv_last = nn.Conv2d(unf, out_nc, 3, 1, 1, bias=True)
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
-    def forward(self, x, fix_bit=None):
-        
+    def forward(self, x, fix_bit=None, dynamic_grad=None):
+        assert dynamic_grad is not None, 'dynamic grad should be grad bits'        
         # first conv
         fea = self.conv_first(x)
         
         # main blocks 
         trunk = fea 
         for m in self.SCPA_trunk:
-            trunk = m(trunk, fix_bit=fix_bit)
-        trunk = self.trunk_conv(trunk, fix_bit=fix_bit)
+            trunk = m(trunk, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        trunk = self.trunk_conv(trunk, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
         fea = fea + trunk
         
         # upsampling 

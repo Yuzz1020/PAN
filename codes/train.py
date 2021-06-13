@@ -1,4 +1,5 @@
 import os
+import sys 
 import math
 import argparse
 import random
@@ -158,7 +159,7 @@ def main():
             
             #### training
             model.feed_data(train_data)
-            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters, fix_bit=opt['train']['fix_bit'])
+            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters, fix_bit=opt['train']['fix_bit'], dynamic_grad=opt['train']['grad_bit'])
             AvgFLOPs.update(iter_cost)
             tb_logger.add_scalar('flops/iter', iter_cost, current_step)
 
@@ -196,7 +197,7 @@ def main():
                         util.mkdir(img_dir)
 
                         model.feed_data(val_data)
-                        model.test(fix_bit=opt['train']['fix_bit'])
+                        model.test(fix_bit=opt['train']['fix_bit'], dynamic_grad=opt['train']['grad_bit'])
 
                         visuals = model.get_current_visuals()
                         sr_img = util.tensor2img(visuals['rlt'])  # uint8
@@ -222,6 +223,8 @@ def main():
                         tb_logger.add_scalar('psnr', avg_psnr, current_step)
                         tb_logger.add_figure('output', sr_img, current_step)
                 else:  # video restoration validation
+                    print('video restoration validation is not supported')
+                    sys.exit(0)
                     if opt['dist']:
                         # multi-GPU testing
                         psnr_rlt = {}  # with border and center frames
