@@ -138,13 +138,13 @@ class SRModel(BaseModel):
         mixed_y = lam * y + (1 - lam) * y[index,:] 
         return mixed_x, mixed_y
     
-    def optimize_parameters(self, curr_step, tb_logger, total_iters=None, fix_bit=None, dynamic_grad=None):
+    def optimize_parameters(self, curr_step, tb_logger, total_iters=None):
         # tb_logger: tensorboard logger 
 
         '''add mixup operation'''
 #         self.var_L, self.real_H = self.mixup_data(self.var_L, self.real_H)
         
-        self.fake_H = self.netG(self.var_L, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        self.fake_H = self.netG(self.var_L)
         if self.loss_type == 'fs':
             l_pix = self.l_pix_w * self.cri_pix(self.fake_H, self.real_H) + self.l_fs_w * self.cri_fs(self.fake_H, self.real_H)
         elif self.loss_type == 'grad':
@@ -277,11 +277,11 @@ class SRModel(BaseModel):
                     tb_logger.add_scalar('{}bitgrad/iter'.format(name), bit_grad, curr_step) 
         return prec_list 
 
-    def test(self, fix_bit=None, dynamic_grad=None):
+    def test(self):
         self.netG.eval()
         
         with torch.no_grad():
-            self.fake_H = self.netG(self.var_L, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+            self.fake_H = self.netG(self.var_L)
         self.netG.train()
 
     def test_x8(self):

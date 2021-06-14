@@ -15,7 +15,7 @@ def define_G(opt):
     # image restoration
     if which_model == 'PAN':
         netG = PAN_arch.PAN(in_nc=opt_net['in_nc'], out_nc=opt_net['out_nc'],
-                                       nf=opt_net['nf'], unf=opt_net['unf'], nb=opt_net['nb'], scale=opt_net['scale'], max_bit=max_bit, min_bit=min_bit)
+                                       nf=opt_net['nf'], unf=opt_net['unf'], nb=opt_net['nb'], scale=opt_net['scale'], max_bit=max_bit, min_bit=min_bit, fix_bit=opt['train']['fix_bit'], backward_bit=opt['train']['grad_bit'])
     elif which_model == 'MSRResNet_PA':
         netG = SRResNet_arch.MSRResNet_PA(in_nc=opt_net['in_nc'], out_nc=opt_net['out_nc'],
                                        nf=opt_net['nf'], nb=opt_net['nb'], upscale=opt_net['scale'])

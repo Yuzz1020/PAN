@@ -202,13 +202,14 @@ class QConv2d(nn.Conv2d):
 
     def __init__(self, in_channels, out_channels, kernel_size,
                  stride=1, padding=0, dilation=1, groups=1, bias=True,
-                 num_bits=8, num_bits_weight=8, same_prec=True, max_bit=None, min_bit=None):
+                 num_bits=8, num_bits_weight=8, same_prec=True, max_bit=None, min_bit=None, backward_bit=None, fix_bit=None):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
 
         assert max_bit is not None
         assert min_bit is not None 
-        
+        assert backward_bit is not None 
+
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
         self.quantize_input = QuantMeasure(
@@ -216,6 +217,9 @@ class QConv2d(nn.Conv2d):
 
         self.max_bit = max_bit
         self.min_bit = min_bit
+
+        self.backward_bit = backward_bit
+        self.fix_bit = fix_bit 
 
         self.same_prec = same_prec
 
@@ -231,7 +235,7 @@ class QConv2d(nn.Conv2d):
 
 
     def forward(self, input, num_bits_weight=None, num_bits=None, 
-            ret_qinput=False, fix_bit=None, dynamic_grad=None, grad_mean=False):
+            ret_qinput=False, grad_mean=False):
         if num_bits_weight is None:
             num_bits_weight = self.num_bits_weight
         if num_bits is None:
@@ -241,7 +245,7 @@ class QConv2d(nn.Conv2d):
             self.prec_w = nn.Parameter(torch.tensor(1.1).cuda())
         elif self.prec_w < -0.1:
             self.prec_w = nn.Parameter(torch.tensor(-0.1).cuda())
-        if fix_bit is None:
+        if self.fix_bit is None:
             
             if num_bits_weight == 0:
                 print('running with unexpected FP')
@@ -262,27 +266,8 @@ class QConv2d(nn.Conv2d):
                 qbias = None
             output = F.conv2d(qinput, qweight, qbias, self.stride,
                             self.padding, self.dilation, self.groups)
-            if dynamic_grad is not None:
-                if isinstance(dynamic_grad, int):
-                    grad_bit = dynamic_grad 
-                else:
-                    bit_range = self.max_bit - self.min_bit 
-                    fw_bit = torch.clamp(torch.round(self.prec_w.detach() * bit_range + self.min_bit), self.min_bit, self.max_bit).item() 
-                    if dynamic_grad == 'A':
-                        grad_bit = np.ceil(fw_bit)
-                    elif dynamic_grad == 'B':
-                        grad_bit = np.clip(fw_bit, self.min_bit, self.max_bit)
-                    elif dynamic_grad == 'C':
-                        grad_bit = fw_bit 
-                    else:
-                        raise NotImplementedError 
+            grad_bit = self.backward_bit 
 
-                    if grad_mean:
-                        self.GradBitMean.update(grad_bit) 
-                        grad_bit = round(self.GradBitMean.avg)
-
-            else:
-                grad_bit = 8
             output = quantize_grad(output, num_bits=grad_bit)
             if ret_qinput:
                 return output, dict(type='conv', data=qinput.detach(),
@@ -293,11 +278,11 @@ class QConv2d(nn.Conv2d):
             else:
                 return output
         else:
-            num_bits = fix_bit
-            num_bits_weight = fix_bit
+            num_bits = self.fix_bit
+            num_bits_weight = self.fix_bit
 
             # only run with fix_bit bits
-            if fix_bit == 32:
+            if self.fix_bit == 32:
                 return F.conv2d(input, self.weight, self.bias, self.stride,
                             self.padding, self.dilation, self.groups)
             qinput = self.quantize_input(input, num_bits)
@@ -314,7 +299,7 @@ class QConv2d(nn.Conv2d):
             output = F.conv2d(qinput, qweight, qbias, self.stride,
                             self.padding, self.dilation, self.groups)\
             # quantize grad, following CPT setting
-            grad_bit = 8
+            grad_bit = self.backward_bit
             output = quantize_grad(output, num_bits=grad_bit)
             if ret_qinput:
                 return output, dict(type='conv', data=qinput.detach(),

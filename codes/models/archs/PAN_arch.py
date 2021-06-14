@@ -1,4 +1,5 @@
 import functools
+from numpy import fix
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,21 +27,21 @@ class PA(nn.Module):
     
 class PAConv(nn.Module):
 
-    def __init__(self, nf, k_size=3, max_bit=None, min_bit=None):
+    def __init__(self, nf, k_size=3, max_bit=None, min_bit=None, fix_bit=None, backward_bit=None):
 
         super(PAConv, self).__init__()
-        self.k2 = Conv2d(nf, nf, 1, max_bit=max_bit, min_bit=min_bit) # 1x1 convolution nf->nf
+        self.k2 = Conv2d(nf, nf, 1, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit) # 1x1 convolution nf->nf
         self.sigmoid = nn.Sigmoid()
-        self.k3 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
-        self.k4 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
+        self.k3 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit) # 3x3 convolution
+        self.k4 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit) # 3x3 convolution
 
     def forward(self, x, fix_bit=None, dynamic_grad=None):
 
-        y = self.k2(x, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        y = self.k2(x)
         y = self.sigmoid(y)
 
-        out = torch.mul(self.k3(x, fix_bit=fix_bit, dynamic_grad=dynamic_grad), y)
-        out = self.k4(out, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        out = torch.mul(self.k3(x), y)
+        out = self.k4(out)
 
         return out
         
@@ -50,49 +51,49 @@ class SCPA(nn.Module):
         Github: https://github.com/MCG-NKU/SCNet
     """
 
-    def __init__(self, nf, reduction=2, stride=1, dilation=1, max_bit=None, min_bit=None):
+    def __init__(self, nf, reduction=2, stride=1, dilation=1, max_bit=None, min_bit=None, fix_bit=None, backward_bit=None):
         super(SCPA, self).__init__()
         group_width = nf // reduction
         
-        self.conv1_a = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
-        self.conv1_b = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
+        self.conv1_a = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit)
+        self.conv1_b = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit)
         
         self.k1 = Conv2d(
                         group_width, group_width, kernel_size=3, stride=stride,
                         padding=dilation, dilation=dilation,
-                        bias=False, max_bit=max_bit, min_bit=min_bit)
+                        bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit)
         
-        self.PAConv = PAConv(group_width, max_bit=max_bit, min_bit=min_bit)
+        self.PAConv = PAConv(group_width, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit)
         
         self.conv3 = Conv2d(
-            group_width * reduction, nf, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
+            group_width * reduction, nf, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit)
         
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
     def forward(self, x, fix_bit=None, dynamic_grad=None):
         residual = x
 
-        out_a= self.conv1_a(x, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
-        out_b = self.conv1_b(x, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        out_a= self.conv1_a(x)
+        out_b = self.conv1_b(x)
         out_a = self.lrelu(out_a)
         out_b = self.lrelu(out_b)
 
-        out_a = self.k1(out_a, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
-        out_b = self.PAConv(out_b, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        out_a = self.k1(out_a)
+        out_b = self.PAConv(out_b)
         out_a = self.lrelu(out_a)
         out_b = self.lrelu(out_b)
 
-        out = self.conv3(torch.cat([out_a, out_b], dim=1), fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+        out = self.conv3(torch.cat([out_a, out_b], dim=1))
         out += residual
 
         return out
     
 class PAN(nn.Module):
     
-    def __init__(self, in_nc, out_nc, nf, unf, nb, scale=4, max_bit=None, min_bit=None):
+    def __init__(self, in_nc, out_nc, nf, unf, nb, scale=4, max_bit=None, min_bit=None, fix_bit=None, backward_bit=None):
         super(PAN, self).__init__()
         # SCPA
-        SCPA_block_f = functools.partial(SCPA, nf=nf, reduction=2, max_bit=max_bit, min_bit=min_bit)
+        SCPA_block_f = functools.partial(SCPA, nf=nf, reduction=2, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit)
         self.scale = scale
         
         ### first convolution
@@ -100,7 +101,7 @@ class PAN(nn.Module):
         
         ### main blocks
         self.SCPA_trunk = arch_util.make_layer(SCPA_block_f, nb)
-        self.trunk_conv = Conv2d(nf, nf, 3, 1, 1, bias=True, max_bit=max_bit, min_bit=min_bit)
+        self.trunk_conv = Conv2d(nf, nf, 3, 1, 1, bias=True, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit, backward_bit=backward_bit)
         
         #### upsampling
         self.upconv1 = nn.Conv2d(nf, unf, 3, 1, 1, bias=True)
@@ -115,16 +116,15 @@ class PAN(nn.Module):
         self.conv_last = nn.Conv2d(unf, out_nc, 3, 1, 1, bias=True)
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
-    def forward(self, x, fix_bit=None, dynamic_grad=None):
-        assert dynamic_grad is not None, 'dynamic grad should be grad bits'        
+    def forward(self, x):
         # first conv
         fea = self.conv_first(x)
         
         # main blocks 
         trunk = fea 
         for m in self.SCPA_trunk:
-            trunk = m(trunk, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
-        trunk = self.trunk_conv(trunk, fix_bit=fix_bit, dynamic_grad=dynamic_grad)
+            trunk = m(trunk)
+        trunk = self.trunk_conv(trunk)
         fea = fea + trunk
         
         # upsampling 
