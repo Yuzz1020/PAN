@@ -1,11 +1,11 @@
 #### general settings
-name: DP_816_R85_W1_DF2K
+name: St_6_DF2K
 use_tb_logger: True
 model: sr
 distortion: sr
 scale: 4
 save_img: True
-gpu_ids: [0,1]
+gpu_ids: [2,3]
 
 #### datasets
 datasets:
@@ -63,16 +63,16 @@ train:
   manual_seed: 10
   val_freq: !!float 5e3
   #### dynamic precision related 
-  DP: True
+  DP: False
   prec_opt: sgd 
   prec_lr: 1.0
-  fix_bit: ~ 
-  max_bit: 16
-  min_bit: 8 
+  fix_bit: 6 
+  max_bit: 8
+  min_bit: 3 
   change: False # change flops weight 
-  target_ratio: 0.85
+  target_ratio: 0.8
   loss_flops_weight: 1
-  calc_bp_cost: False  # calculate bp cost when computing efficiency metric 
+  calc_bp_cost: True  # calculate bp cost when computing efficiency metric 
   loss_type: thres # in [rela, thres] 
   grad_bit: 16
   tb_logging_interval: 10

@@ -172,6 +172,9 @@ class SRModel(BaseModel):
             l_pix += flops_weight * flops_loss * self.train_opt['loss_flops_weight']
         
         l_pix.backward()
+
+        nn.utils.clip_grad_norm_(self.netG.parameters(), 5) 
+        
         self.optimizer_G.step()
 
         if self.train_opt['DP']:
@@ -200,7 +203,7 @@ class SRModel(BaseModel):
         if self.train_opt['DP']:
             return prec_list, total_flops 
         else:
-            return None, None 
+            return None, 1.0 
 
     def get_efficiency_loss(self):
         bp = self.train_opt['calc_bp_cost']
@@ -215,18 +218,17 @@ class SRModel(BaseModel):
                 layer_prec = my_clamp_round().apply(layer.prec_w * self.bit_range + self.min_bit, self.min_bit, self.max_bit)
                 if bp == True:
                     # count bp cost in metric 
-                    curr_flops += self.ldp_layer_cost[cnt] * layer_prec * layer_prec / 8 / 8 + 2 * self.ldp_layer_cost[cnt] * layer_prec / 8 
+                    curr_flops += self.ldp_layer_cost[cnt] * layer_prec * layer_prec / self.max_bit / self.max_bit + 2 * self.ldp_layer_cost[cnt] * layer_prec / self.max_bit 
                 elif bp == False:
-                    curr_flops += self.ldp_layer_cost[cnt] * layer_prec * layer_prec / 8 / 8 
+                    curr_flops += self.ldp_layer_cost[cnt] * layer_prec * layer_prec / self.max_bit / self.max_bit 
                 cnt += 1 
         if bp == True:
             curr_flops = curr_flops / 3 
         if self.loss_type == 'thres':
             if curr_flops > self.target_flops:
-                print('exceed cost budget')
-                return curr_flops, curr_flops
+                return curr_flops, curr_flops.item()
             else:
-                return torch.tensor(0.0), curr_flops 
+                return torch.tensor(0.0), curr_flops.item()
 
     def initialize_layer_costs(self):
         tmp_model = copy.deepcopy(self.netG)
@@ -234,8 +236,8 @@ class SRModel(BaseModel):
             for l in tmp_model.modules():
                 if isinstance(l, nn.Conv2d):
                     l.register_forward_hook(get_shape)
-            test_input = torch.rand(2, 3, 224, 224)
-            _ = tmp_model(test_input, fix_bit=8, dynamic_grad=8)
+            test_input = torch.rand(1, 3, 224, 224)
+            _ = tmp_model(test_input)
             self.layer_shape = layer_cost 
 
 
@@ -251,7 +253,7 @@ class SRModel(BaseModel):
                 inp = curr_stat['input']
                 kernel = curr_stat['conv']
                 flops = (kernel[0] * kernel[2] * kernel[3] + 1) * kernel[1] * inp[2] * inp[3] / st / st 
-                flops = flops * 8 * 8 / 32 / 32 
+                flops = flops * self.max_bit * self.max_bit / 32 / 32 
                 if hasattr(la, 'prec_w'):
                     self.ldp_layer_cost.append(flops)
                 else:
