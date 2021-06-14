@@ -190,6 +190,7 @@ def main():
                     # does not support multi-GPU validation
                     pbar = util.ProgressBar(len(val_loader))
                     avg_psnr = 0.
+                    avg_y_psnr = 0.0
                     idx = 0
                     for val_data in val_loader:
                         idx += 1
@@ -215,10 +216,17 @@ def main():
                         avg_psnr += util.calculate_psnr(sr_img, gt_img)
                         pbar.update('Test {}'.format(img_name))
 
+                        if gt_img.shape[2] == 3:  # RGB image
+                            sr_img_y = util.bgr2ycbcr(sr_img / 255., only_y=True)
+                            gt_img_y = util.bgr2ycbcr(gt_img / 255., only_y=True)
+
+                            psnr_y = util.calculate_psnr(sr_img_y * 255, gt_img_y * 255)
+                            avg_y_psnr += psnr_y 
                     avg_psnr = avg_psnr / idx
+                    avg_y_psnr = avg_y_psnr / idx 
 
                     # log
-                    logger.info('# Validation # PSNR: {:.4e}'.format(avg_psnr))
+                    logger.info('# Validation # PSNR: {:.4e}\t # PSNR - Y: {:.4e}'.format(avg_psnr, avg_y_psnr))
                     # tensorboard logger
                     if opt['use_tb_logger'] and 'debug' not in opt['name']:
                         tb_logger.add_scalar('psnr', avg_psnr, current_step)
