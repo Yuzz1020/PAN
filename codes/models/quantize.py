@@ -137,6 +137,9 @@ class UniformQuantizeGrad(InplaceFunction):
             grad_input = quantize(grad_output, num_bits=None,
                                   qparams=qparams, flatten_dims=ctx.flatten_dims, reduce_dim=ctx.reduce_dim,
                                   dequantize=True, signed=ctx.signed, stochastic=ctx.stochastic, inplace=False)
+            if torch.isnan(grad_input):
+                print('precision grad is nan, set to 0')
+                grad_input = torch.tensor(0.0) 
         return grad_input, None, None, None, None, None, None, None
 
 

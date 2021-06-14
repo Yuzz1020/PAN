@@ -1,19 +1,19 @@
 #### general settings
-name: DP_38_R8_W1_C_DF2K
+name: DP_38_R85_W1_C_DF2K
 use_tb_logger: True
 model: sr
 distortion: sr
 scale: 4
 save_img: True
-gpu_ids: [0,1]
+gpu_ids: [8,9]
 
 #### datasets
 datasets:
   train:
     name: DF2K
     mode: LQGT
-    dataroot_GT: /data1/zy42/PAN_data/hr
-    dataroot_LQ: /data1/zy42/PAN_data/x4
+    dataroot_GT: /data2/zy42/PAN_data/hr
+    dataroot_LQ: /data2/zy42/PAN_data/x4
     
     use_shuffle: true
     n_workers: 6  # per GPU
@@ -25,8 +25,8 @@ datasets:
   val:
     name: Set5
     mode: LQGT
-    dataroot_GT: ../datasets/Set5/HR
-    dataroot_LQ: ../datasets/Set5/LR_bicubic/X4
+    dataroot_GT: ../datasets/Urban100/HR
+    dataroot_LQ: ../datasets/Urban100/LR_bicubic/X4
 
 #### network structures
 network_G:
@@ -65,15 +65,16 @@ train:
   #### dynamic precision related 
   DP: True 
   prec_opt: sgd 
-  prec_lr: 10.0
+  prec_lr: 1.0
   fix_bit: ~  
   max_bit: 8
   min_bit: 3 
   change: True # change flops weight 
-  target_ratio: 0.8 
+  target_ratio: 0.85 
   loss_flops_weight: 1
   calc_bp_cost: True  # calculate bp cost when computing efficiency metric 
   loss_type: thres # in [rela, thres] 
+  grad_bit: 16
   tb_logging_interval: 10
 
 

@@ -170,8 +170,6 @@ class SRModel(BaseModel):
             flops_loss, total_flops = self.get_efficiency_loss()  
             flops_weight = l_pix.item() / (flops_loss.item() + 1e-8)
             l_pix += flops_weight * flops_loss * self.train_opt['loss_flops_weight']
-            import ipdb
-            ipdb.set_trace()
         
         l_pix.backward()
         self.optimizer_G.step()
@@ -232,14 +230,14 @@ class SRModel(BaseModel):
 
     def initialize_layer_costs(self):
         tmp_model = copy.deepcopy(self.netG)
-        for l in tmp_model.modules():
-            if isinstance(l, nn.Conv2d):
-                l.register_forward_hook(get_shape)
-        test_input = torch.rand(1, 3, 224, 224)
-        _ = tmp_model(test_input)
-        self.layer_shape = layer_cost 
+        with torch.no_grad():
+            for l in tmp_model.modules():
+                if isinstance(l, nn.Conv2d):
+                    l.register_forward_hook(get_shape)
+            test_input = torch.rand(2, 3, 224, 224)
+            _ = tmp_model(test_input, fix_bit=8, dynamic_grad=8)
+            self.layer_shape = layer_cost 
 
-        del tmp_model
 
         cnt = 0 
         self.fix_layer_cost = []

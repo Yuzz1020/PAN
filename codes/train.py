@@ -4,6 +4,7 @@ import math
 import argparse
 import random
 import logging
+import matplotlib.pyplot as plt 
 
 import torch
 import torch.distributed as dist
@@ -150,38 +151,38 @@ def main():
     #### training
     logger.info('Start training from epoch: {:d}, iter: {:d}'.format(start_epoch, current_step))
     for epoch in range(start_epoch, total_epochs + 1):
-        if opt['dist']:
-            train_sampler.set_epoch(epoch)
-        for _, train_data in enumerate(train_loader):
-            current_step += 1
-            if current_step > total_iters:
-                break
-            
-            #### training
-            model.feed_data(train_data)
-            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters, fix_bit=opt['train']['fix_bit'], dynamic_grad=opt['train']['grad_bit'])
-            AvgFLOPs.update(iter_cost)
-            tb_logger.add_scalar('flops/iter', iter_cost, current_step)
-
-            #### update learning rate
-            model.update_learning_rate(current_step, warmup_iter=opt['train']['warmup_iter'])
-
-            #### log
-            if current_step % opt['logger']['print_freq'] == 0:
-                logs = model.get_current_log()
-                message = '[epoch:{:3d}, iter:{:8,d}, lr:('.format(epoch, current_step)
-                for v in model.get_current_learning_rate():
-                    message += '{:.3e},'.format(v)
-                message += ')] '
-                for k, v in logs.items():
-                    message += '{:s}: {:.4e} '.format(k, v)
-                    # tensorboard logger
-                    if opt['use_tb_logger'] and 'debug' not in opt['name']:
-                        if rank <= 0:
-                            tb_logger.add_scalar(k, v, current_step)
-                if rank <= 0:
-                    logger.info(message)
-                    logger.info('precision are {}'.format(prec_list))
+#        if opt['dist']:
+#            train_sampler.set_epoch(epoch)
+#        for _, train_data in enumerate(train_loader):
+#            current_step += 1
+#            if current_step > total_iters:
+#                break
+#            
+#            #### training
+#            model.feed_data(train_data)
+#            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters, fix_bit=opt['train']['fix_bit'], dynamic_grad=opt['train']['grad_bit'])
+#            AvgFLOPs.update(iter_cost)
+#            tb_logger.add_scalar('flops/iter', iter_cost, current_step)
+#
+#            #### update learning rate
+#            model.update_learning_rate(current_step, warmup_iter=opt['train']['warmup_iter'])
+#
+#            #### log
+#            if current_step % opt['logger']['print_freq'] == 0:
+#                logs = model.get_current_log()
+#                message = '[epoch:{:3d}, iter:{:8,d}, lr:('.format(epoch, current_step)
+#                for v in model.get_current_learning_rate():
+#                    message += '{:.3e},'.format(v)
+#                message += ')] '
+#                for k, v in logs.items():
+#                    message += '{:s}: {:.4e} '.format(k, v)
+#                    # tensorboard logger
+#                    if opt['use_tb_logger'] and 'debug' not in opt['name']:
+#                        if rank <= 0:
+#                            tb_logger.add_scalar(k, v, current_step)
+#                if rank <= 0:
+#                    logger.info(message)
+#                    logger.info('precision are {}'.format(prec_list))
 
             #### validation
             if opt['datasets'].get('val', None) and current_step % opt['train']['val_freq'] == 0:
@@ -221,7 +222,7 @@ def main():
                     # tensorboard logger
                     if opt['use_tb_logger'] and 'debug' not in opt['name']:
                         tb_logger.add_scalar('psnr', avg_psnr, current_step)
-                        tb_logger.add_figure('output', sr_img, current_step)
+#                        tb_logger.add_figure('output', sr_img, current_step)
                 else:  # video restoration validation
                     print('video restoration validation is not supported')
                     sys.exit(0)
