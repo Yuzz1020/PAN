@@ -28,13 +28,13 @@ class PA(nn.Module):
     
 class PAConv(nn.Module):
 
-    def __init__(self, nf, k_size=3, max_bit=None, min_bit=None, fix_bit=None):
+    def __init__(self, nf, k_size=3, max_bit=None, min_bit=None):
 
         super(PAConv, self).__init__()
-        self.k2 = Conv2d(nf, nf, 1, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit) # 1x1 convolution nf->nf
+        self.k2 = Conv2d(nf, nf, 1, max_bit=max_bit, min_bit=min_bit) # 1x1 convolution nf->nf
         self.sigmoid = nn.Sigmoid()
-        self.k3 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit) # 3x3 convolution
-        self.k4 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit) # 3x3 convolution
+        self.k3 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
+        self.k4 = Conv2d(nf, nf, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False, max_bit=max_bit, min_bit=min_bit) # 3x3 convolution
 
     def forward(self, x, fix_bit=None, grad_bit=None):
 
@@ -52,22 +52,22 @@ class SCPA(nn.Module):
         Github: https://github.com/MCG-NKU/SCNet
     """
 
-    def __init__(self, nf, reduction=2, stride=1, dilation=1, max_bit=None, min_bit=None, fix_bit=None):
+    def __init__(self, nf, reduction=2, stride=1, dilation=1, max_bit=None, min_bit=None):
         super(SCPA, self).__init__()
         group_width = nf // reduction
         
-        self.conv1_a = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit)
-        self.conv1_b = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit)
+        self.conv1_a = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
+        self.conv1_b = Conv2d(nf, group_width, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
         
         self.k1 = Conv2d(
                         group_width, group_width, kernel_size=3, stride=stride,
                         padding=dilation, dilation=dilation,
-                        bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit)
+                        bias=False, max_bit=max_bit, min_bit=min_bit)
         
-        self.PAConv = PAConv(group_width, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit)
+        self.PAConv = PAConv(group_width, max_bit=max_bit, min_bit=min_bit)
         
         self.conv3 = Conv2d(
-            group_width * reduction, nf, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit)
+            group_width * reduction, nf, kernel_size=1, bias=False, max_bit=max_bit, min_bit=min_bit)
         
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 
@@ -91,10 +91,10 @@ class SCPA(nn.Module):
     
 class PAN(nn.Module):
     
-    def __init__(self, in_nc, out_nc, nf, unf, nb, scale=4, max_bit=None, min_bit=None, fix_bit=None):
+    def __init__(self, in_nc, out_nc, nf, unf, nb, scale=4, max_bit=None, min_bit=None):
         super(PAN, self).__init__()
         # SCPA
-        SCPA_block_f = functools.partial(SCPA, nf=nf, reduction=2, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit)
+        SCPA_block_f = functools.partial(SCPA, nf=nf, reduction=2, max_bit=max_bit, min_bit=min_bit)
         self.scale = scale
         
         ### first convolution
@@ -102,7 +102,7 @@ class PAN(nn.Module):
         
         ### main blocks
         self.SCPA_trunk = arch_util.make_layer(SCPA_block_f, nb)
-        self.trunk_conv = Conv2d(nf, nf, 3, 1, 1, bias=True, max_bit=max_bit, min_bit=min_bit, fix_bit=fix_bit)
+        self.trunk_conv = Conv2d(nf, nf, 3, 1, 1, bias=True, max_bit=max_bit, min_bit=min_bit)
         
         #### upsampling
         self.upconv1 = nn.Conv2d(nf, unf, 3, 1, 1, bias=True)

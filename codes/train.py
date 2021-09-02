@@ -15,6 +15,7 @@ import options.options as option
 from utils import util
 from data import create_dataloader, create_dataset
 from models import create_model
+from data.util import bgr2ycbcr
 
 
 def init_dist(backend='nccl', **kwargs):
@@ -157,8 +158,6 @@ def main():
             train_sampler.set_epoch(epoch)
         for _, train_data in enumerate(train_loader):
             current_step += 1
-            if current_step > total_iters:
-                break
             
             #### training
             model.feed_data(train_data)
@@ -219,8 +218,8 @@ def main():
                         pbar.update('Test {}'.format(img_name))
 
                         if gt_img.shape[2] == 3:  # RGB image
-                            sr_img_y = util.bgr2ycbcr(sr_img / 255., only_y=True)
-                            gt_img_y = util.bgr2ycbcr(gt_img / 255., only_y=True)
+                            sr_img_y = bgr2ycbcr(sr_img / 255., only_y=True)
+                            gt_img_y = bgr2ycbcr(gt_img / 255., only_y=True)
 
                             psnr_y = util.calculate_psnr(sr_img_y * 255, gt_img_y * 255)
                             avg_y_psnr += psnr_y 

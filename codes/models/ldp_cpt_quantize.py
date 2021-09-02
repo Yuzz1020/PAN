@@ -240,7 +240,7 @@ class QConv2d(nn.Conv2d):
         self.num_bits = num_bits 
 
 #    def forward(self, input, num_bits, num_grad_bits):
-    def forward(self, input, fix_bit=None, grad_bit=8):
+    def forward(self, input, fix_bit=None, grad_bit=16):
         num_grad_bits = grad_bit
         num_bits = self.num_bits 
         if fix_bit is not None:

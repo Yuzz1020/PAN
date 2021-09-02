@@ -39,17 +39,41 @@ class RunningMean(object):
         else:
             self.avg = self.ratio * self.avg + (1 - self.ratio) * self.val
 
-def get_shape(self,input, output):
+def get_shape(self, input, output):
     name = self.__class__.__name__
-    conv_shape = self.weight.shape
-    layer_stride = self.stride[0]
+
+    weight_shape = self.weight.shape
+    if 'onv' in name:
+        try:
+            layer_stride = self.stride[0]
+        except:
+            layer_stride = self.stride
+        groups = self.groups
     input_shape = input[0].shape
     output_shape = output.shape 
-    groups = self.groups
+    
+    if 'onv' in name:
+        print('{}\tweight shape {}\tinput shape {}\t output shape {}\t groups {}'.format(name, weight_shape, input_shape, output_shape, groups))
+        layer_cost.append({'name': name, 'weight': weight_shape, 'input':input_shape, 'output':output_shape, 'stride':layer_stride, 'groups':groups, 'ldp': 'Q' in name})
+    else:
+        print('{}/tweight shape {}\tinput shape {}\t output shape {}\t'.format(name, weight_shape, input_shape, output_shape))
+        layer_cost.append({'name': name, 'weight': weight_shape, 'input': input_shape, 'output': output_shape, 'ldp': 'Q' in name})
 
-    print('{}\tconv shape {}\tinput shape {}\t output shape {}\t groups {}'.format(name, conv_shape, input_shape, output_shape, groups))
-    layer_cost.append({'conv': conv_shape, 'input':input_shape, 'output':output_shape, 'stride':layer_stride, 'groups':groups})
-
+ 
+#def get_shape(self,input, output):
+#    name = self.__class__.__name__
+#    conv_shape = self.weight.shape
+#    try:
+#        layer_stride = self.stride[0]
+#    except:
+#        layer_stride = self.stride
+#    input_shape = input[0].shape
+#    output_shape = output.shape 
+#    groups = self.groups
+#
+#    print('{}\tconv shape {}\tinput shape {}\t output shape {}\t groups {}'.format(name, conv_shape, input_shape, output_shape, groups))
+#    layer_cost.append({'conv': conv_shape, 'input':input_shape, 'output':output_shape, 'stride':layer_stride, 'groups':groups})
+#
 class SRModel(BaseModel):
     def __init__(self, opt):
         super(SRModel, self).__init__(opt)
@@ -135,12 +159,16 @@ class SRModel(BaseModel):
             self.min_bit = train_opt['min_bit']
             self.bit_range = self.max_bit - self.min_bit 
             self.fix_bit = train_opt['fix_bit']
+            self.grad_bit = train_opt['grad_bit']
             self.quant_lr = train_opt['quant_lr']
             
             self.init_flops_weight = train_opt['loss_flops_weight']
             self.target_flops_ratio = train_opt['target_ratio']
+            self.prec_grad_reference = train_opt['reference']
 
             self.loss_type = train_opt['loss_type']
+
+            self.input_size = [1, 3, 64, 64]
 
             self.initialize_layer_costs() 
 
@@ -164,7 +192,7 @@ class SRModel(BaseModel):
         '''add mixup operation'''
 #         self.var_L, self.real_H = self.mixup_data(self.var_L, self.real_H)
         
-        self.fake_H = self.netG(self.var_L)
+        self.fake_H = self.netG(self.var_L, self.grad_bit)
         if self.loss_type == 'fs':
             l_pix = self.l_pix_w * self.cri_pix(self.fake_H, self.real_H) + self.l_fs_w * self.cri_fs(self.fake_H, self.real_H)
         elif self.loss_type == 'grad':
@@ -187,7 +215,7 @@ class SRModel(BaseModel):
             #         self.train_opt['loss_flops_weight'] = self.init_flops_weight * 0.5 
             #     else:
             #         self.train_opt['loss_flops_weight'] = self.init_flops_weight 
-            cost_ratio, prec_grad_mean = self.get_efficiency_loss(self.train_opt['loss_flops_weight'])  
+            cost_ratio, prec_grad_mean = self.get_efficiency_loss(self.train_opt['loss_flops_weight'], self.train_opt['loss_flops_weight'])  
             # flops_weight = l_pix.item() / (flops_loss.item() + 1e-8)
             # l_pix += flops_weight * flops_loss * self.train_opt['loss_flops_weight']
         
@@ -225,11 +253,11 @@ class SRModel(BaseModel):
         else:
             return None, 1.0 
 
-    def efficiency_metric(self, flops_weight=None, grad_penalty_val=None):
+    def get_efficiency_loss(self, flops_weight=None, grad_penalty_val=None):
         with torch.no_grad():
             curr_flops = self.total_static_flops 
             cnt = 0 
-            for la in self.modules():
+            for la in self.netG.modules():
                 if isinstance(la, QConv2d):
                     layer_prec = torch.clamp(torch.round(la.prec_w * self.bit_range + self.min_bit), self.min_bit, self.max_bit).item() 
                     curr_flops += self.ldp_layer_flops[cnt] * (layer_prec * layer_prec / self.max_bit / self.max_bit + 2 * layer_prec / self.max_bit) / 3
@@ -238,7 +266,7 @@ class SRModel(BaseModel):
 
             if curr_flops > self.target_flops:
                 prec_grad_list = []
-                for la in self.modules():
+                for la in self.netG.modules():
                     if isinstance(la, QConv2d):
                         prec_grad_list.append(la.prec_w.grad.item())
                 prec_grad_list = torch.tensor(prec_grad_list)
@@ -257,7 +285,7 @@ class SRModel(BaseModel):
                 
                 actual_grad = torch.tensor(actual_grad) * actual_grad_scale
                 idx = 0 
-                for la in self.modules():
+                for la in self.netG.modules():
                     if isinstance(la, QConv2d):
                         la.prec_w.grad = torch.tensor(la.prec_w.grad + actual_grad[idx])
                         idx += 1 
@@ -286,12 +314,12 @@ class SRModel(BaseModel):
         self.ldp_layer_flops = []
         self.static_layer_flops = []  
         
-        for layer in tmp_self.modules():
+        for layer in tmp_self.netG.modules():
             if isinstance(layer, nn.Conv2d):
                 # extract convolution layers 
                 layer.register_forward_hook(get_shape)
         test_input = torch.rand(self.input_size)
-        _ = tmp_self(test_input, )
+        _ = tmp_self.netG(test_input, )
         self.layer_shapes = layer_cost
         del tmp_self
 
@@ -324,10 +352,10 @@ class SRModel(BaseModel):
         
         self.target_flops = self.total_flops * self.target_flops_ratio 
 
-        self.set_true_grad()
+        self.set_true_grad('actual_grad', self.prec_grad_reference)
     
     def reset_prec(self):
-        for la in self.modules():
+        for la in self.netG.modules():
             if isinstance(la, QConv2d):
                 if la.prec_w > 1.1:
                     nn.init.ones_(la.prec_w)
@@ -352,44 +380,6 @@ class SRModel(BaseModel):
         
         with torch.no_grad():
             self.fake_H = self.netG(self.var_L)
-        self.netG.train()
-
-    def test_x8(self):
-        # from https://github.com/thstkdgus35/EDSR-PyTorch
-        self.netG.eval()
-
-        print('test_x8 is not modified so far, exiting')
-        sys.exit(0)
-        def _transform(v, op):
-            # if self.precision != 'single': v = v.float()
-            v2np = v.data.cpu().numpy()
-            if op == 'v':
-                tfnp = v2np[:, :, :, ::-1].copy()
-            elif op == 'h':
-                tfnp = v2np[:, :, ::-1, :].copy()
-            elif op == 't':
-                tfnp = v2np.transpose((0, 1, 3, 2)).copy()
-
-            ret = torch.Tensor(tfnp).to(self.device)
-            # if self.precision == 'half': ret = ret.half()
-
-            return ret
-
-        lr_list = [self.var_L]
-        for tf in 'v', 'h', 't':
-            lr_list.extend([_transform(t, tf) for t in lr_list])
-        with torch.no_grad():
-            sr_list = [self.netG(aug) for aug in lr_list]
-        for i in range(len(sr_list)):
-            if i > 3:
-                sr_list[i] = _transform(sr_list[i], 't')
-            if i % 4 > 1:
-                sr_list[i] = _transform(sr_list[i], 'h')
-            if (i % 4) % 2 == 1:
-                sr_list[i] = _transform(sr_list[i], 'v')
-
-        output_cat = torch.cat(sr_list, dim=0)
-        self.fake_H = output_cat.mean(dim=0, keepdim=True)
         self.netG.train()
 
     def get_current_log(self):
