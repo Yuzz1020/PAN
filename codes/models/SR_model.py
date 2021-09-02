@@ -21,6 +21,24 @@ logger = logging.getLogger('base')
 #### for LDP 
 layer_cost = []
 
+class RunningMean(object):
+    def __init__(self):
+        self.reset()
+
+    def reset(self, ratio=0.9):
+        self.val = 0
+        self.start = True
+        self.avg = 0
+        self.ratio = ratio
+
+    def update(self, val):
+        self.val = val
+        if self.start:
+            self.start = False
+            self.avg = self.val
+        else:
+            self.avg = self.ratio * self.avg + (1 - self.ratio) * self.val
+
 def get_shape(self,input, output):
     name = self.__class__.__name__
     conv_shape = self.weight.shape
@@ -116,7 +134,9 @@ class SRModel(BaseModel):
             self.max_bit = train_opt['max_bit']
             self.min_bit = train_opt['min_bit']
             self.bit_range = self.max_bit - self.min_bit 
-
+            self.fix_bit = train_opt['fix_bit']
+            self.quant_lr = train_opt['quant_lr']
+            
             self.init_flops_weight = train_opt['loss_flops_weight']
             self.target_flops_ratio = train_opt['target_ratio']
 
@@ -160,16 +180,16 @@ class SRModel(BaseModel):
             l_pix = self.l_pix_w * self.cri_pix(self.fake_H, self.real_H)
         
         if self.train_opt['DP']:
-            if self.train_opt['change']: 
-                if curr_step > (total_iters*0.75):
-                    self.train_opt['loss_flops_weight'] = self.init_flops_weight * 0.25 
-                elif curr_step > (total_iters * 0.5): 
-                    self.train_opt['loss_flops_weight'] = self.init_flops_weight * 0.5 
-                else:
-                    self.train_opt['loss_flops_weight'] = self.init_flops_weight 
-            flops_loss, total_flops = self.get_efficiency_loss()  
-            flops_weight = l_pix.item() / (flops_loss.item() + 1e-8)
-            l_pix += flops_weight * flops_loss * self.train_opt['loss_flops_weight']
+            # if self.train_opt['change']: 
+            #     if curr_step > (total_iters*0.75):
+            #         self.train_opt['loss_flops_weight'] = self.init_flops_weight * 0.25 
+            #     elif curr_step > (total_iters * 0.5): 
+            #         self.train_opt['loss_flops_weight'] = self.init_flops_weight * 0.5 
+            #     else:
+            #         self.train_opt['loss_flops_weight'] = self.init_flops_weight 
+            cost_ratio, prec_grad_mean = self.get_efficiency_loss(self.train_opt['loss_flops_weight'])  
+            # flops_weight = l_pix.item() / (flops_loss.item() + 1e-8)
+            # l_pix += flops_weight * flops_loss * self.train_opt['loss_flops_weight']
         
         l_pix.backward()
 
@@ -201,70 +221,120 @@ class SRModel(BaseModel):
             self.log_dict['l_fs'] = lfs.item()
         
         if self.train_opt['DP']:
-            return prec_list, total_flops 
+            return prec_list, cost_ratio 
         else:
             return None, 1.0 
 
-    def get_efficiency_loss(self):
-        bp = self.train_opt['calc_bp_cost']
-        assert self.loss_type in ['thres']
-        if bp == True:
-            curr_flops = self.total_fix_flops * 3 
-        else: 
-            curr_flops = self.total_fix_flops 
-        cnt = 0 
-        for layer in self.netG.modules():
-            if isinstance(layer, QConv2d):
-                layer_prec = my_clamp_round().apply(layer.prec_w * self.bit_range + self.min_bit, self.min_bit, self.max_bit)
-                if bp == True:
-                    # count bp cost in metric 
-                    curr_flops += self.ldp_layer_cost[cnt] * layer_prec * layer_prec / self.max_bit / self.max_bit + 2 * self.ldp_layer_cost[cnt] * layer_prec / self.max_bit 
-                elif bp == False:
-                    curr_flops += self.ldp_layer_cost[cnt] * layer_prec * layer_prec / self.max_bit / self.max_bit 
-                cnt += 1 
-        if bp == True:
-            curr_flops = curr_flops / 3 
-        if self.loss_type == 'thres':
+    def efficiency_metric(self, flops_weight=None, grad_penalty_val=None):
+        with torch.no_grad():
+            curr_flops = self.total_static_flops 
+            cnt = 0 
+            for la in self.modules():
+                if isinstance(la, QConv2d):
+                    layer_prec = torch.clamp(torch.round(la.prec_w * self.bit_range + self.min_bit), self.min_bit, self.max_bit).item() 
+                    curr_flops += self.ldp_layer_flops[cnt] * (layer_prec * layer_prec / self.max_bit / self.max_bit + 2 * layer_prec / self.max_bit) / 3
+                    cnt += 1 
+            curr_ratio = curr_flops / self.total_flops + (1 - self.ldp_flops_ratio)
+
             if curr_flops > self.target_flops:
-                return curr_flops, curr_flops.item()
-            else:
-                return torch.tensor(0.0), curr_flops.item()
+                prec_grad_list = []
+                for la in self.modules():
+                    if isinstance(la, QConv2d):
+                        prec_grad_list.append(la.prec_w.grad.item())
+                prec_grad_list = torch.tensor(prec_grad_list)
+                max_grad = torch.max(torch.abs(prec_grad_list))
+                self.prec_grad_running_mean.update(torch.mean(torch.abs(prec_grad_list)))
+
+                assert flops_weight is not None 
+                # reduce based on prec split ratio 
+                actual_grad = self.layer_cost_ratio * self.bit_range
+                if self.prec_grad_reference == 'static':
+                    actual_grad_scale = flops_weight 
+                elif self.prec_grad_reference == 'prec_grad':
+                    actual_grad_scale = flops_weight * self.prec_grad_running_mean.avg / np.mean(actual_grad)
+                else:
+                    raise NotImplementedError 
+                
+                actual_grad = torch.tensor(actual_grad) * actual_grad_scale
+                idx = 0 
+                for la in self.modules():
+                    if isinstance(la, QConv2d):
+                        la.prec_w.grad = torch.tensor(la.prec_w.grad + actual_grad[idx])
+                        idx += 1 
+
+        return curr_ratio, self.prec_grad_running_mean.avg
+
+    def set_true_grad(self, true_grad, reference):
+        self.true_grad = true_grad 
+        self.prec_grad_running_mean = RunningMean()
+        self.prec_grad_reference = reference  
+        if self.true_grad == 'actual_grad':
+            # get layerwise prec cost
+            self.layer_cost_ratio = [lf / self.total_flops for lf in self.ldp_layer_flops] 
+
+    def inference_cost(self, prec_list):
+        flops = self.total_static_flops
+        ldp_flops = self.ldp_layer_flops * prec_list * prec_list / self.max_bit / self.max_bit 
+        ldp_flops = sum(ldp_flops)
+        flops += ldp_flops 
+        infer_cost = flops / self.total_flops
+        return infer_cost 
 
     def initialize_layer_costs(self):
-        tmp_model = copy.deepcopy(self.netG)
-        with torch.no_grad():
-            for l in tmp_model.modules():
-                if isinstance(l, nn.Conv2d):
-                    l.register_forward_hook(get_shape)
-            test_input = torch.rand(1, 3, 224, 224)
-            _ = tmp_model(test_input)
-            self.layer_shape = layer_cost 
+        tmp_self = copy.deepcopy(self)
+        
+        self.ldp_layer_flops = []
+        self.static_layer_flops = []  
+        
+        for layer in tmp_self.modules():
+            if isinstance(layer, nn.Conv2d):
+                # extract convolution layers 
+                layer.register_forward_hook(get_shape)
+        test_input = torch.rand(self.input_size)
+        _ = tmp_self(test_input, )
+        self.layer_shapes = layer_cost
+        del tmp_self
 
-
-        cnt = 0 
-        self.fix_layer_cost = []
-        self.ldp_layer_cost = [] 
-
-        for la in self.netG.modules():
-            if isinstance(la, nn.Conv2d):
-                # calculate layer cost 
-                curr_stat = self.layer_shape[cnt]
+        for l in range(len(self.layer_shapes)):
+            curr_stat = self.layer_shapes[l]
+            name = curr_stat['name']
+            ldp = curr_stat['ldp']
+            if 'onv' in name:
                 st = curr_stat['stride']
                 inp = curr_stat['input']
-                kernel = curr_stat['conv']
-                flops = (kernel[0] * kernel[2] * kernel[3] + 1) * kernel[1] * inp[2] * inp[3] / st / st 
-                flops = flops * self.max_bit * self.max_bit / 32 / 32 
-                if hasattr(la, 'prec_w'):
-                    self.ldp_layer_cost.append(flops)
-                else:
-                    self.fix_layer_cost.append(flops) 
-                cnt += 1 
-        self.total_ldp_flops = np.sum(self.ldp_layer_cost)
-        self.total_fix_flops = np.sum(self.fix_layer_cost) 
-        self.total_flops = self.total_ldp_flops + self.total_fix_flops 
-        
-        self.target_flops = self.total_flops * self.target_flops_ratio
+            kernel = curr_stat['weight']
+            if 'onv' in name:
+                flops = (kernel[1] * kernel[2] * kernel[3] + 1) * kernel[0] * inp[2] * inp[3] / st / st
+            else: 
+                flops = (2 * kernel[0] - 1) * kernel[1]
 
+            flops = flops * self.max_bit * self.max_bit / 32/ 32  # initial flops count with 8-bit
+            if ldp:
+                self.ldp_layer_flops.append(flops)
+            else:
+                self.static_layer_flops.append(flops) 
+        
+        self.total_flops = sum(self.ldp_layer_flops) + sum(self.static_layer_flops) # only forward flops is considered 
+        self.total_static_flops = sum(self.static_layer_flops)
+        self.total_ldp_flops = sum(self.ldp_layer_flops)
+        self.ldp_flops_ratio = self.total_ldp_flops / self.total_flops
+
+        print('total flops is {}\ntotal ldp flops is {}\ttotal static flops is {}\nldp flops ratio is {:.3f}'.format(self.total_flops, 
+                            self.total_ldp_flops, self.total_static_flops, self.ldp_flops_ratio))
+        
+        self.target_flops = self.total_flops * self.target_flops_ratio 
+
+        self.set_true_grad()
+    
+    def reset_prec(self):
+        for la in self.modules():
+            if isinstance(la, QConv2d):
+                if la.prec_w > 1.1:
+                    nn.init.ones_(la.prec_w)
+                elif la.prec_w < -0.1:
+                    nn.init.zeros_(la.prec_w)
+
+                    
     def tb_info_logging(self, tb_logger, curr_step):
         prec_list = [] 
         # TODO: add layer weight gradient into this function 
@@ -274,9 +344,7 @@ class SRModel(BaseModel):
                 prec_list.append(prec) 
                 if curr_step %  self.train_opt['tb_logging_interval'] == 0:
                     tb_logger.add_scalar('{}prec/iter'.format(name), prec, curr_step)
-                bit_grad = param.grad 
-                if curr_step %  self.train_opt['tb_logging_interval'] == 0:
-                    tb_logger.add_scalar('{}bitgrad/iter'.format(name), bit_grad, curr_step) 
+
         return prec_list 
 
     def test(self):

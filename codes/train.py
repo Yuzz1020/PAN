@@ -140,10 +140,12 @@ def main():
 
         start_epoch = resume_state['epoch']
         current_step = resume_state['iter']
+        best_psnr = resume_state['psnr']
         model.resume_training(resume_state)  # handle optimizers and schedulers
     else:
         current_step = 0
         start_epoch = 0
+        best_psnr = -1
 
     AvgFLOPs = util.AverageMeter()
 
@@ -224,104 +226,23 @@ def main():
                             avg_y_psnr += psnr_y 
                     avg_psnr = avg_psnr / idx
                     avg_y_psnr = avg_y_psnr / idx 
-
+                    if best_psnr < avg_y_psnr:
+                        best_psnr = avg_y_psnr 
+                        best_prec = prec_list
                     # log
                     logger.info('# Validation # PSNR: {:.4e}\t # PSNR - Y: {:.4e}'.format(avg_psnr, avg_y_psnr))
                     # tensorboard logger
                     if opt['use_tb_logger'] and 'debug' not in opt['name']:
                         tb_logger.add_scalar('psnr', avg_psnr, current_step)
 #                        tb_logger.add_figure('output', sr_img, current_step)
-                else:  # video restoration validation
-                    print('video restoration validation is not supported')
-                    sys.exit(0)
-                    if opt['dist']:
-                        # multi-GPU testing
-                        psnr_rlt = {}  # with border and center frames
-                        if rank == 0:
-                            pbar = util.ProgressBar(len(val_set))
-                        for idx in range(rank, len(val_set), world_size):
-                            val_data = val_set[idx]
-                            val_data['LQs'].unsqueeze_(0)
-                            val_data['GT'].unsqueeze_(0)
-                            folder = val_data['folder']
-                            idx_d, max_idx = val_data['idx'].split('/')
-                            idx_d, max_idx = int(idx_d), int(max_idx)
-                            if psnr_rlt.get(folder, None) is None:
-                                psnr_rlt[folder] = torch.zeros(max_idx, dtype=torch.float32,
-                                                               device='cuda')
-                            # tmp = torch.zeros(max_idx, dtype=torch.float32, device='cuda')
-                            model.feed_data(val_data)
-                            model.test(fix_bit=opt['train']['fix_bit'])
-                            visuals = model.get_current_visuals()
-                            rlt_img = util.tensor2img(visuals['rlt'])  # uint8
-                            gt_img = util.tensor2img(visuals['GT'])  # uint8
-                            # calculate PSNR
-                            psnr_rlt[folder][idx_d] = util.calculate_psnr(rlt_img, gt_img)
-
-                            if rank == 0:
-                                for _ in range(world_size):
-                                    pbar.update('Test {} - {}/{}'.format(folder, idx_d, max_idx))
-                        # # collect data
-                        for _, v in psnr_rlt.items():
-                            dist.reduce(v, 0)
-                        dist.barrier()
-
-                        if rank == 0:
-                            psnr_rlt_avg = {}
-                            psnr_total_avg = 0.
-                            for k, v in psnr_rlt.items():
-                                psnr_rlt_avg[k] = torch.mean(v).cpu().item()
-                                psnr_total_avg += psnr_rlt_avg[k]
-                            psnr_total_avg /= len(psnr_rlt)
-                            log_s = '# Validation # PSNR: {:.4e}:'.format(psnr_total_avg)
-                            for k, v in psnr_rlt_avg.items():
-                                log_s += ' {}: {:.4e}'.format(k, v)
-                            logger.info(log_s)
-                            if opt['use_tb_logger'] and 'debug' not in opt['name']:
-                                tb_logger.add_scalar('psnr_avg', psnr_total_avg, current_step)
-                                for k, v in psnr_rlt_avg.items():
-                                    tb_logger.add_scalar(k, v, current_step)
-                    else:
-                        pbar = util.ProgressBar(len(val_loader))
-                        psnr_rlt = {}  # with border and center frames
-                        psnr_rlt_avg = {}
-                        psnr_total_avg = 0.
-                        for val_data in val_loader:
-                            folder = val_data['folder'][0]
-                            idx_d = val_data['idx'].item()
-                            # border = val_data['border'].item()
-                            if psnr_rlt.get(folder, None) is None:
-                                psnr_rlt[folder] = []
-
-                            model.feed_data(val_data)
-                            model.test(fix_bit=opt['train']['fix_bit'])
-                            visuals = model.get_current_visuals()
-                            rlt_img = util.tensor2img(visuals['rlt'])  # uint8
-                            gt_img = util.tensor2img(visuals['GT'])  # uint8
-
-                            # calculate PSNR
-                            psnr = util.calculate_psnr(rlt_img, gt_img)
-                            psnr_rlt[folder].append(psnr)
-                            pbar.update('Test {} - {}'.format(folder, idx_d))
-                        for k, v in psnr_rlt.items():
-                            psnr_rlt_avg[k] = sum(v) / len(v)
-                            psnr_total_avg += psnr_rlt_avg[k]
-                        psnr_total_avg /= len(psnr_rlt)
-                        log_s = '# Validation # PSNR: {:.4e}:'.format(psnr_total_avg)
-                        for k, v in psnr_rlt_avg.items():
-                            log_s += ' {}: {:.4e}'.format(k, v)
-                        logger.info(log_s)
-                        if opt['use_tb_logger'] and 'debug' not in opt['name']:
-                            tb_logger.add_scalar('psnr_avg', psnr_total_avg, current_step)
-                            for k, v in psnr_rlt_avg.items():
-                                tb_logger.add_scalar(k, v, current_step)
-
+        
             #### save models and training states
             if current_step % opt['logger']['save_checkpoint_freq'] == 0:
                 if rank <= 0:
                     logger.info('Saving models and training states.')
                     model.save(current_step)
                     model.save_training_state(epoch, current_step)
+        model.reset_prec() # TODO implement this 
 
     if rank <= 0:
         logger.info('Saving the final model.')
