@@ -13,7 +13,7 @@ import models.networks as networks
 import models.lr_scheduler as lr_scheduler
 from .base_model import BaseModel
 from models.loss import CharbonnierLoss, FSLoss, GradientLoss
-from .quantize import QConv2d, my_clamp_round
+from .ldp_cpt_quantize import QConv2d, my_clamp_round
 
 logger = logging.getLogger('base')
 
@@ -262,7 +262,7 @@ class SRModel(BaseModel):
                     layer_prec = torch.clamp(torch.round(la.prec_w * self.bit_range + self.min_bit), self.min_bit, self.max_bit).item() 
                     curr_flops += self.ldp_layer_flops[cnt] * (layer_prec * layer_prec / self.max_bit / self.max_bit + 2 * layer_prec / self.max_bit) / 3
                     cnt += 1 
-            curr_ratio = curr_flops / self.total_flops + (1 - self.ldp_flops_ratio)
+            curr_ratio = curr_flops / self.total_flops 
 
             if curr_flops > self.target_flops:
                 prec_grad_list = []

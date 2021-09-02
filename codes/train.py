@@ -184,6 +184,7 @@ def main():
                 if rank <= 0:
                     logger.info(message)
                     logger.info('precision are {}'.format(prec_list))
+                    logger.info('cost is {:.3f}'.format(iter_cost))
 
             #### validation
             if opt['datasets'].get('val', None) and current_step % opt['train']['val_freq'] == 0:
