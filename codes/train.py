@@ -87,6 +87,7 @@ def main():
     else:
         util.setup_logger('base', opt['path']['log'], 'train', level=logging.INFO, screen=True)
         logger = logging.getLogger('base')
+        tb_logger = None 
 
     # convert to NoneDict, which returns None for missing keys
     opt = option.dict_to_nonedict(opt)
@@ -161,10 +162,11 @@ def main():
             
             #### training
             model.feed_data(train_data)
-            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters)
+            prec_list, iter_cost = model.optimize_parameters(current_step, tb_logger=tb_logger, total_iters=total_iters, rank=rank)
             AvgFLOPs.update(iter_cost)
-            tb_logger.add_scalar('flops/iter', iter_cost, current_step)
- 
+            if rank <= 0:
+                tb_logger.add_scalar('flops/iter', iter_cost, current_step)
+            
             #### update learning rate
             model.update_learning_rate(current_step, warmup_iter=opt['train']['warmup_iter'])
  
@@ -233,8 +235,9 @@ def main():
                     logger.info('# Validation # PSNR: {:.4e}\t # PSNR - Y: {:.4e}'.format(avg_psnr, avg_y_psnr))
                     # tensorboard logger
                     if opt['use_tb_logger'] and 'debug' not in opt['name']:
-                        tb_logger.add_scalar('psnr', avg_psnr, current_step)
-#                        tb_logger.add_figure('output', sr_img, current_step)
+                        if rank <= 0:
+                            tb_logger.add_scalar('psnr', avg_psnr, current_step)
+#                            tb_logger.add_figure('output', sr_img, current_step)
         
             #### save models and training states
             if current_step % opt['logger']['save_checkpoint_freq'] == 0:

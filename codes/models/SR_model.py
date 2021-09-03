@@ -186,7 +186,7 @@ class SRModel(BaseModel):
         mixed_y = lam * y + (1 - lam) * y[index,:] 
         return mixed_x, mixed_y
     
-    def optimize_parameters(self, curr_step, tb_logger, total_iters=None):
+    def optimize_parameters(self, curr_step, tb_logger, total_iters=None, rank=-1):
         # tb_logger: tensorboard logger 
 
         '''add mixup operation'''
@@ -231,7 +231,7 @@ class SRModel(BaseModel):
 
             # tb logging related 
             if curr_step % self.train_opt['tb_logging_interval'] == 0:
-                prec_list = self.tb_info_logging(tb_logger, curr_step) # TODO: log with name of layer, includes prec, grad, bit_grad, returns prec_list 
+                prec_list = self.tb_info_logging(tb_logger, curr_step, rank) # TODO: log with name of layer, includes prec, grad, bit_grad, returns prec_list 
             else:
                 prec_list = None
                 
@@ -363,7 +363,7 @@ class SRModel(BaseModel):
                     nn.init.zeros_(la.prec_w)
 
                     
-    def tb_info_logging(self, tb_logger, curr_step):
+    def tb_info_logging(self, tb_logger, curr_step, rank):
         prec_list = [] 
         # TODO: add layer weight gradient into this function 
         for name, param in self.netG.module.named_parameters():
@@ -371,7 +371,8 @@ class SRModel(BaseModel):
                 prec = np.clip(np.round(param.item() * (self.max_bit - self.min_bit) + self.min_bit), self.min_bit, self.max_bit)
                 prec_list.append(prec) 
                 if curr_step %  self.train_opt['tb_logging_interval'] == 0:
-                    tb_logger.add_scalar('{}prec/iter'.format(name), prec, curr_step)
+                    if rank <=0:
+                        tb_logger.add_scalar('{}prec/iter'.format(name), prec, curr_step)
 
         return prec_list 
 
