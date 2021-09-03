@@ -68,7 +68,7 @@ class FakeWeight(InplaceFunction):
     
     @staticmethod 
     def backward(ctx, output):
-        input = output
+        input = output.clone()
         return input 
 
 class UniformQuantize():
@@ -85,7 +85,7 @@ class UniformQuantize():
         if qparams is None:
             assert num_bits is not None, "either provide qparams of num_bits to quantize"
             qparams = calculate_qparams(
-                input, num_bits=num_bits, flatten_dims=flatten_dims, reduce_dim=reduce_dim)
+                output, num_bits=num_bits, flatten_dims=flatten_dims, reduce_dim=reduce_dim)
 
         zero_point = qparams.zero_point
 
@@ -134,7 +134,7 @@ class UniformQuantizeGrad(InplaceFunction):
         ctx.dequantize = dequantize
         ctx.reduce_dim = reduce_dim
         ctx.inplace = False
-        return input
+        return input.clone()
 
     @staticmethod
     def backward(ctx, grad_output):

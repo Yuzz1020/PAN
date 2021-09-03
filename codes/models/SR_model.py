@@ -192,7 +192,7 @@ class SRModel(BaseModel):
         '''add mixup operation'''
 #         self.var_L, self.real_H = self.mixup_data(self.var_L, self.real_H)
         
-        self.fake_H = self.netG(self.var_L, self.grad_bit)
+        self.fake_H = self.netG(self.var_L, grad_bit=self.grad_bit)
         if self.loss_type == 'fs':
             l_pix = self.l_pix_w * self.cri_pix(self.fake_H, self.real_H) + self.l_fs_w * self.cri_fs(self.fake_H, self.real_H)
         elif self.loss_type == 'grad':
